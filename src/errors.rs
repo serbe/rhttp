@@ -15,7 +15,7 @@ pub enum Error {
     #[fail(display = "Invalid auth version")]
     InvalidAuthVersion,
     #[fail(display = "Failure, connection must be closed")]
-    NotClosedConnection,
+    AuthFailure,
     #[fail(display = "Wrong http")]
     WrongHttp,
     #[fail(display = "{}", _0)]

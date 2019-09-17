@@ -21,6 +21,4 @@ mod socks;
 //     println!("{:?}", String::from_utf8(body.to_vec()));
 // }
 
-fn main() {
-    
-}
+fn main() {}
