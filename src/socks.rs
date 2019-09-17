@@ -33,7 +33,7 @@ impl FromStr for Addr {
                 raw.insert_str(0, "http://");
             }
         }
-        let url = Url::parse(&raw).map_err(|e| Error::UrlParse(e))?;
+        let url = Url::parse(&raw).map_err(Error::UrlParse)?;
 
         Ok(Addr { url })
     }
@@ -161,35 +161,35 @@ fn is_valid_socks_version(value: u8) -> Result<(), Error> {
 }
 
 fn try_auth(socket: &mut TcpStream, value: u8, auth: &SocksAuth) -> Result<(), Error> {
-    match value == auth.method as u8 {
-        true if value == 2u8 => {
-            // For username/password authentication the client's authentication request is
-            //     field 1: version number, 1 byte (0x01 for current version of username/password authentication)
-            let mut packet = vec![1u8];
-            //     field 2: username length, 1 byte
-            packet.push(auth.username.len() as u8);
-            //     field 3: username, 1–255 bytes
-            packet.append(&mut auth.username.clone());
-            //     field 4: password length, 1 byte
-            packet.push(auth.password.len() as u8);
-            //     field 5: password, 1–255 bytes
-            packet.append(&mut auth.password.clone());
-            socket.write_all(&packet)?;
-            let mut buf = [0u8; 2];
-            socket.read_exact(&mut buf)?;
-            // Server response for username/password authentication:
-            //     field 1: version, 1 byte (0x01 for current version of username/password authentication)
-            //     field 2: status code, 1 byte
-            //         0x00: success
-            //         any other value is a failure, connection must be closed
-            match (buf[0] != 1u8, buf[1] != 0u8) {
-                (true, _) => Err(Error::InvalidAuthVersion),
-                (_, true) => Err(Error::AuthFailure),
-                _ => Ok(()),
-            }
+    if value == auth.method as u8 && value == 2u8 {
+        // For username/password authentication the client's authentication request is
+        //     field 1: version number, 1 byte (0x01 for current version of username/password authentication)
+        let mut packet = vec![1u8];
+        //     field 2: username length, 1 byte
+        packet.push(auth.username.len() as u8);
+        //     field 3: username, 1–255 bytes
+        packet.append(&mut auth.username.clone());
+        //     field 4: password length, 1 byte
+        packet.push(auth.password.len() as u8);
+        //     field 5: password, 1–255 bytes
+        packet.append(&mut auth.password.clone());
+        socket.write_all(&packet)?;
+        let mut buf = [0u8; 2];
+        socket.read_exact(&mut buf)?;
+        // Server response for username/password authentication:
+        //     field 1: version, 1 byte (0x01 for current version of username/password authentication)
+        //     field 2: status code, 1 byte
+        //         0x00: success
+        //         any other value is a failure, connection must be closed
+        match (buf[0] != 1u8, buf[1] != 0u8) {
+            (true, _) => Err(Error::InvalidAuthVersion),
+            (_, true) => Err(Error::AuthFailure),
+            _ => Ok(()),
         }
-        true => Ok(()),
-        _ => Err(Error::InvalidAuthMethod),
+    } else if value == auth.method as u8 {
+        Ok(())
+    } else {
+        Err(Error::InvalidAuthMethod)
     }
 }
 
@@ -298,8 +298,8 @@ fn get_port(socket: &mut TcpStream) -> Result<[u8; 2], Error> {
 pub struct SocksStream {
     stream: Stream,
     target: Addr,
-    bind_addr: Host,
-    bind_port: [u8; 2],
+    // bind_addr: Host,
+    // bind_port: [u8; 2],
 }
 
 impl SocksStream {
@@ -327,87 +327,25 @@ impl SocksStream {
         is_valid_socks_version(buf[0])?;
         try_auth(&mut socket, buf[1], auth)?;
         request_connection(&mut socket, target.to_vec()?)?;
-        let mut buf = [0u8; 4];
-        socket.read_exact(&mut buf)?;
-        // Server response:
-        //     field 1: SOCKS protocol version, 1 byte (0x05 for this version)
-        if buf[0] != 5u8 {
-            return Err(Error::InvalidServerVersion);
-        }
-        //     field 2: status, 1 byte:
-        //         0x00: request granted
-        //         0x01: general failure
-        //         0x02: connection not allowed by ruleset
-        //         0x03: network unreachable
-        //         0x04: host unreachable
-        //         0x05: connection refused by destination host
-        //         0x06: TTL expired
-        //         0x07: command not supported / protocol error
-        //         0x08: address type not supported
-        match buf[1] {
-            0 => Ok(()),
-            1 => Err(Error::GeneralFailure),
-            2 => Err(Error::InvalidRuleset),
-            3 => Err(Error::NetworkUnreachable),
-            4 => Err(Error::HostUnreachable),
-            5 => Err(Error::RefusedByHost),
-            6 => Err(Error::TtlExpired),
-            7 => Err(Error::InvalidCommandProtocol),
-            8 => Err(Error::InvalidAddressType),
-            _ => Err(Error::UnknownError),
-        }?;
-        //     field 3: reserved, must be 0x00, 1 byte
-        if buf[2] != 0u8 {
-            return Err(Error::InvalidReservedByte);
-        }
-        //     field 4: address type, 1 byte:
-        //         0x01: IPv4 address
-        //         0x03: Domain name
-        //         0x04: IPv6 address
-        //     field 5: server bound address of
-        //         4 bytes for IPv4 address
-        //         1 byte of name length followed by 1–255 bytes the domain name
-        //         16 bytes for IPv6 address
-        let bind_addr = match buf[3] {
-            1 => {
-                let mut buf = [0u8; 4];
-                socket.read_exact(&mut buf)?;
-                Ok(Host::Ipv4(Ipv4Addr::from(buf)))
-            }
-            3 => {
-                let mut len = [0u8; 1];
-                socket.read_exact(&mut len)?;
-                let mut buf = vec![0u8; len[0] as usize];
-                socket.read_exact(&mut buf)?;
-                Ok(Host::Domain(String::from_utf8_lossy(&buf).into_owned()))
-            }
-            4 => {
-                let mut buf = [0u8; 16];
-                socket.read_exact(&mut buf)?;
-                Ok(Host::Ipv6(Ipv6Addr::from(buf)))
-            }
-            _ => Err(Error::InvalidAddressType),
-        }?;
-        let mut bind_port = [0u8; 2];
-        //     field 6: server bound port number in a network byte order, 2 bytes
-        socket.read_exact(&mut bind_port)?;
+        get_server_reponse(&mut socket)?;
+        let _host = get_host(&mut socket)?;
+        let _port = get_port(&mut socket)?;
         let stream = if target.is_ssl() {
-            let builder = TlsConnector::new().map_err(|e| Error::TlsConnector(e))?;
+            let builder = TlsConnector::new().map_err(Error::TlsConnector)?;
             Stream::Tls(Box::new(
                 builder
                     .connect(&target.host()?, socket)
-                    .map_err(|e| Error::NativeTls(e))?,
+                    .map_err(Error::NativeTls)?,
             ))
         } else {
             Stream::Tcp(socket)
         };
-        // let stream = Stream::Tcp(socket);
 
         Ok(SocksStream {
             stream,
             target: target.clone(),
-            bind_addr,
-            bind_port,
+            // bind_addr,
+            // bind_port,
         })
     }
 }
@@ -421,6 +359,7 @@ pub fn get(proxy: &str, target: &str) -> io::Result<Vec<u8>> {
     )
     .into_bytes();
     stream.write_all(&request)?;
+    stream.flush()?;
     let mut response = vec![];
     stream.read_to_end(&mut response)?;
     let pos = response
@@ -446,6 +385,7 @@ pub fn post_json(proxy: &str, target: &str, body: &str) -> io::Result<Vec<u8>> {
     )
     .into_bytes();
     stream.write_all(&request)?;
+    stream.flush()?;
     let mut response = vec![];
     stream.read_to_end(&mut response)?;
     let pos = response
