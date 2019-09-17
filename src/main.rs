@@ -3,7 +3,8 @@
 // use std::net::TcpStream;
 
 mod errors;
-mod request;
+mod http;
+// mod request;
 // mod url;
 mod socks;
 

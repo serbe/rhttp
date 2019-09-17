@@ -4,8 +4,44 @@ use failure::Fail;
 pub enum Error {
     #[fail(display = "{}", _0)]
     Io(#[cause] std::io::Error),
-    // #[fail(display = "{}", _0)]
-    // ParseError(#[cause] std::string::ParseError),
+    #[fail(display = "{}", _0)]
+    UrlParse(#[cause] url::ParseError),
+    #[fail(display = "Invalid address host type")]
+    InvalidHost,
+    #[fail(display = "Invalid server version")]
+    InvalidServerVersion,
+    #[fail(display = "Auth method not supported")]
+    InvalidAuthMethod,
+    #[fail(display = "Invalid auth version")]
+    InvalidAuthVersion,
+    #[fail(display = "Failure, connection must be closed")]
+    NotClosedConnection,
+    #[fail(display = "Wrong http")]
+    WrongHttp,
+    #[fail(display = "{}", _0)]
+    NativeTls(#[cause] native_tls::HandshakeError<std::net::TcpStream>),
+    #[fail(display = "{}", _0)]
+    TlsConnector(#[cause] native_tls::Error),
+    #[fail(display = "Invalid address type")]
+    InvalidAddressType,
+    #[fail(display = "Invalid reserved byte")]
+    InvalidReservedByte,
+    #[fail(display = "Unknown error")]
+    UnknownError,
+    #[fail(display = "Command not supported / protocol error")]
+    InvalidCommandProtocol,
+    #[fail(display = "TTL expired")]
+    TtlExpired,
+    #[fail(display = "Connection refused by destination host")]
+    RefusedByHost,
+    #[fail(display = "Host unreachable")]
+    HostUnreachable,
+    #[fail(display = "Network unreachable")]
+    NetworkUnreachable,
+    #[fail(display = "Connection not allowed by ruleset")]
+    InvalidRuleset,
+    #[fail(display = "General failure")]
+    GeneralFailure,
     // #[fail(display = "Target address is invalid: {}", _0)]
     // InvalidTargetAddress(&'static str),
     #[fail(display = "Url: is empty")]

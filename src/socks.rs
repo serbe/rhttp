@@ -1,18 +1,9 @@
-// extern crate native_tls;
-// extern crate url;
-
-// use native_tls::{TlsConnector, TlsStream};
+use native_tls::{TlsConnector, TlsStream};
 use std::io::{self, Read, Write};
-use std::io::{Error, ErrorKind};
 use std::net::{Ipv4Addr, Ipv6Addr, TcpStream};
 use std::str::FromStr;
 use url::{Url, Host};
-
-const SOCKS_VERSION: u8 = 5u8;
-
-enum Command {
-    TcpStreamConnection = 1,
-}
+use crate::errors::Error;
 
 #[derive(Debug, Clone)]
 struct Addr {
@@ -42,7 +33,7 @@ impl FromStr for Addr {
             }
         }
         let url =
-            Url::parse(&raw).map_err(|e| Error::new(ErrorKind::InvalidInput, e.to_string()))?;
+            Url::parse(&raw).map_err(|e| Error::UrlParse(e))?;
 
         Ok(Addr { url })
     }
@@ -53,30 +44,30 @@ impl Addr {
         self.url.scheme() == "https"
     }
 
-    fn addr_type(&self) -> io::Result<u8> {
+    fn addr_type(&self) -> Result<u8, Error> {
         match self.url.host() {
             Some(Host::Ipv4(_)) => Ok(1u8),
             Some(Host::Ipv6(_)) => Ok(4u8),
             Some(Host::Domain(_)) => Ok(3u8),
-            _ => Err(Error::new(ErrorKind::InvalidData, "address host type")),
+            _ => Err(Error::InvalidHost),
         }
     }
 
-    fn host(&self) -> io::Result<String> {
+    fn host(&self) -> Result<String, Error> {
         match self.url.host() {
             Some(Host::Ipv4(ipv4)) => Ok(ipv4.to_string()),
             Some(Host::Ipv6(ipv6)) => Ok(ipv6.to_string()),
             Some(Host::Domain(domain)) => Ok(domain.to_string()),
-            None => Err(Error::new(ErrorKind::InvalidData, "unknown host type")),
+            None => Err(Error::InvalidHost),
         }
     }
 
-    fn host_vec(&self) -> io::Result<Vec<u8>> {
+    fn host_vec(&self) -> Result<Vec<u8>, Error> {
         match self.url.host() {
             Some(Host::Ipv4(ipv4)) => Ok(ipv4.octets().to_vec()),
             Some(Host::Ipv6(ipv6)) => Ok(ipv6.octets().to_vec()),
             Some(Host::Domain(domain)) => Ok(domain.as_bytes().to_vec()),
-            None => Err(Error::new(ErrorKind::InvalidInput, "unknown host type")),
+            None => Err(Error::InvalidHost),
         }
     }
 
@@ -112,14 +103,7 @@ impl Addr {
 #[derive(Clone, Copy)]
 enum AuthMethod {
     NoAuth = 0,
-    // GSSAPI = 1,
     Plain = 2,
-    // CHAP = 3,
-    // CRAM = 5,
-    // SSL = 6,
-    // Unassigned = 7,
-    // Reserved = 128,
-    // NoAcceptable = 255,
 }
 
 struct SocksAuth {
@@ -149,7 +133,7 @@ impl SocksAuth {
 #[derive(Debug)]
 pub enum Stream {
     Tcp(TcpStream),
-    // Tls(Box<TlsStream<TcpStream>>),
+    Tls(Box<TlsStream<TcpStream>>),
 }
 
 #[derive(Debug)]
@@ -161,7 +145,7 @@ pub struct SocksStream {
 }
 
 impl SocksStream {
-    pub fn connect(proxy: &str, target: &str) -> io::Result<SocksStream> {
+    pub fn connect(proxy: &str, target: &str) -> Result<SocksStream, Error> {
         Self::handshake(proxy, &target.parse()?, &SocksAuth::new())
     }
 
@@ -170,7 +154,7 @@ impl SocksStream {
         target: &str,
         username: &str,
         password: &str,
-    ) -> io::Result<SocksStream> {
+    ) -> Result<SocksStream, Error> {
         Self::handshake(
             proxy,
             &target.parse()?,
@@ -178,24 +162,24 @@ impl SocksStream {
         )
     }
 
-    fn handshake(proxy: &str, target: &Addr, auth: &SocksAuth) -> io::Result<SocksStream> {
+    fn handshake(proxy: &str, target: &Addr, auth: &SocksAuth) -> Result<SocksStream, Error> {
         let mut socket = TcpStream::connect(proxy)?;
         // The initial greeting from the client
         //      field 1: SOCKS version, 1 byte (0x05 for this version)
         //      field 2: number of authentication methods supported, 1 byte
         //      field 3: authentication methods, variable length, 1 byte per method supported
-        socket.write_all(&[SOCKS_VERSION, 1u8, auth.method as u8])?;
+        socket.write_all(&[5u8, 1u8, auth.method as u8])?;
         // The server's choice is communicated:
         //      field 1: SOCKS version, 1 byte (0x05 for this version)
         //      field 2: chosen authentication method, 1 byte, or 0xFF if no acceptable methods were offered
         let mut buf = [0u8; 2];
         socket.read_exact(&mut buf)?;
-        match (buf[0] == SOCKS_VERSION, buf[1] == auth.method as u8) {
-            (false, _) => Err(Error::new(ErrorKind::Interrupted, "wrong server version")),
-            (_, false) => Err(Error::new(ErrorKind::Interrupted, "auth method not supported",)),
+        match (buf[0] == 5u8, buf[1] == auth.method as u8) {
+            (false, _) => Err(Error::InvalidServerVersion),
+            (_, false) => Err(Error::InvalidAuthMethod),
             _ => Ok(())
         }?;
-        if buf[1] == AuthMethod::Plain as u8 {
+        if buf[1] == 2u8 {
             // For username/password authentication the client's authentication request is
             //     field 1: version number, 1 byte (0x01 for current version of username/password authentication)
             let mut packet = vec![1u8];
@@ -216,20 +200,20 @@ impl SocksStream {
             //         0x00: success
             //         any other value is a failure, connection must be closed
             match (buf[0] != 1u8, buf[1] != 0u8) {
-                (true, _) => Err(Error::new(ErrorKind::Interrupted, "wrong auth version")),
-                (_, true) => Err(Error::new(ErrorKind::Interrupted, "failure, connection must be closed")),
+                (true, _) => Err(Error::InvalidAuthVersion),
+                (_, true) => Err(Error::NotClosedConnection),
                 _ => Ok(())
             }?;
         }
         let mut packet = Vec::new();
         // The client's connection request is
         //     field 1: SOCKS version number, 1 byte (0x05 for this version)
-        packet.push(SOCKS_VERSION);
+        packet.push(5u8);
         //     field 2: command code, 1 byte:
         //         0x01: establish a TCP/IP stream connection
         //         0x02: establish a TCP/IP port binding
         //         0x03: associate a UDP port
-        packet.push(Command::TcpStreamConnection as u8);
+        packet.push(1u8);
         //     field 3: reserved, must be 0x00, 1 byte
         packet.push(0u8);
         //     field 4: address type, 1 byte:
@@ -247,8 +231,8 @@ impl SocksStream {
         socket.read_exact(&mut buf)?;
         // Server response:
         //     field 1: SOCKS protocol version, 1 byte (0x05 for this version)
-        if buf[0] != SOCKS_VERSION {
-            return Err(Error::new(ErrorKind::Interrupted, "not supporter server version"));
+        if buf[0] != 5u8 {
+            return Err(Error::InvalidServerVersion);
         }
         //     field 2: status, 1 byte:
         //         0x00: request granted
@@ -262,31 +246,19 @@ impl SocksStream {
         //         0x08: address type not supported
         match buf[1] {
             0 => Ok(()),
-            1 => Err(Error::new(ErrorKind::Interrupted, "general failure")),
-            2 => Err(Error::new(
-                ErrorKind::Interrupted,
-                "connection not allowed by ruleset",
-            )),
-            3 => Err(Error::new(ErrorKind::Interrupted, "network unreachable")),
-            4 => Err(Error::new(ErrorKind::Interrupted, "host unreachable")),
-            5 => Err(Error::new(
-                ErrorKind::Interrupted,
-                "connection refused by destination host",
-            )),
-            6 => Err(Error::new(ErrorKind::Interrupted, "TTL expired")),
-            7 => Err(Error::new(
-                ErrorKind::Interrupted,
-                "command not supported / protocol error",
-            )),
-            8 => Err(Error::new(
-                ErrorKind::Interrupted,
-                "address type not supported",
-            )),
-            _ => Err(Error::new(ErrorKind::Other, "unknown error")),
+            1 => Err(Error::GeneralFailure),
+            2 => Err(Error::InvalidRuleset),
+            3 => Err(Error::NetworkUnreachable),
+            4 => Err(Error::HostUnreachable),
+            5 => Err(Error::RefusedByHost),
+            6 => Err(Error::TtlExpired),
+            7 => Err(Error::InvalidCommandProtocol),
+            8 => Err(Error::InvalidAddressType),
+            _ => Err(Error::UnknownError),
         }?;
         //     field 3: reserved, must be 0x00, 1 byte
         if buf[2] != 0u8 {
-            return Err(Error::new(ErrorKind::Interrupted, "invalid reserved byte"));
+            return Err(Error::InvalidReservedByte);
         }
         //     field 4: address type, 1 byte:
         //         0x01: IPv4 address
@@ -314,23 +286,23 @@ impl SocksStream {
                 socket.read_exact(&mut buf)?;
                 Ok(Host::Ipv6(Ipv6Addr::from(buf)))
             }
-            _ => Err(Error::new(ErrorKind::Other, "invalid address type")),
+            _ => Err(Error::InvalidAddressType),
         }?;
         let mut bind_port = [0u8; 2];
         //     field 6: server bound port number in a network byte order, 2 bytes
         socket.read_exact(&mut bind_port)?;
-        // let stream = if target.is_ssl() {
-        //     let builder =
-        //         TlsConnector::new().map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
-        //     Stream::Tls(Box::new(
-        //         builder
-        //             .connect(&target.host()?, socket)
-        //             .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?,
-        //     ))
-        // } else {
-        //     Stream::Tcp(socket)
-        // };
-        let stream = Stream::Tcp(socket);
+        let stream = if target.is_ssl() {
+            let builder =
+                TlsConnector::new().map_err(|e| Error::TlsConnector(e))?;
+            Stream::Tls(Box::new(
+                builder
+                    .connect(&target.host()?, socket)
+                    .map_err(|e| Error::NativeTls(e))?,
+            ))
+        } else {
+            Stream::Tcp(socket)
+        };
+        // let stream = Stream::Tcp(socket);
 
         Ok(SocksStream {
             stream,
@@ -355,7 +327,7 @@ pub fn get(proxy: &str, target: &str) -> io::Result<Vec<u8>> {
     let pos = response
         .windows(4)
         .position(|x| x == b"\r\n\r\n")
-        .ok_or_else(|| Error::new(ErrorKind::Other, "wrong http"))?;
+        .ok_or_else(|| Error::WrongHttp)?;
     let body = &response[pos + 4..response.len()];
     Ok(body.to_vec())
 }
@@ -380,7 +352,7 @@ pub fn post_json(proxy: &str, target: &str, body: &str) -> io::Result<Vec<u8>> {
     let pos = response
         .windows(4)
         .position(|x| x == b"\r\n\r\n")
-        .ok_or_else(|| Error::new(ErrorKind::Other, "wrong http"))?;
+        .ok_or_else(|| Error::WrongHttp)?;
     let body = &response[pos + 4..response.len()];
     Ok(body.to_vec())
 }
@@ -405,7 +377,7 @@ impl Read for Stream {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
             Stream::Tcp(stream) => stream.read(buf),
-            // Stream::Tls(stream) => (*stream).read(buf),
+            Stream::Tls(stream) => (*stream).read(buf),
         }
     }
 }
@@ -414,14 +386,14 @@ impl Write for Stream {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         match self {
             Stream::Tcp(stream) => stream.write(buf),
-            // Stream::Tls(stream) => (*stream).write(buf),
+            Stream::Tls(stream) => (*stream).write(buf),
         }
     }
 
     fn flush(&mut self) -> io::Result<()> {
         match self {
             Stream::Tcp(stream) => stream.flush(),
-            // Stream::Tls(stream) => (*stream).flush(),
+            Stream::Tls(stream) => (*stream).flush(),
         }
     }
 }
