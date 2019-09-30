@@ -3,10 +3,11 @@
 // use std::net::TcpStream;
 
 mod errors;
-// mod http;
+mod http;
 // mod request;
 // mod url;
 mod socks;
+mod addr;
 
 // fn get_ip() {
 //     let mut stream = TcpStream::connect("api.ipify.org:80").unwrap();
@@ -22,7 +23,7 @@ mod socks;
 // }
 
 fn main() {
-    let body = socks::get("127.0.0.1:9050", "api.ipify.org");
+    // let body = socks::get("127.0.0.1:9050", "api.ipify.org");
     // dbg!(&body);
-    println!("{}", String::from_utf8(body.unwrap()).unwrap());
+    // println!("{}", String::from_utf8(body.unwrap()).unwrap());
 }

@@ -1,104 +1,12 @@
-use native_tls::{TlsConnector, TlsStream};
+#![allow(dead_code)]
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, Ipv6Addr, TcpStream};
-use std::str::FromStr;
-use url::{Host, Url};
 
-use crate::errors::Error;
+use native_tls::{TlsConnector, TlsStream};
+use url::{Host};
 
-#[derive(Debug, Clone)]
-struct Addr {
-    url: Url,
-}
-
-impl FromStr for Addr {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut raw = String::from(s);
-        if !raw.contains("://") {
-            let mut is_secure = false;
-            if raw.contains(':') {
-                if let Some(host) = raw.clone().splitn(2, '/').nth(0) {
-                    if let Some(port) = host.rsplitn(2, ':').nth(0) {
-                        if port == "443" {
-                            is_secure = true;
-                        }
-                    }
-                }
-            }
-            if is_secure {
-                raw.insert_str(0, "https://");
-            } else {
-                raw.insert_str(0, "http://");
-            }
-        }
-        let url = Url::parse(&raw).map_err(Error::UrlParse)?;
-
-        Ok(Addr { url })
-    }
-}
-
-impl Addr {
-    fn is_ssl(&self) -> bool {
-        self.url.scheme() == "https"
-    }
-
-    fn addr_type(&self) -> Result<u8, Error> {
-        match self.url.host() {
-            Some(Host::Ipv4(_)) => Ok(1u8),
-            Some(Host::Ipv6(_)) => Ok(4u8),
-            Some(Host::Domain(_)) => Ok(3u8),
-            _ => Err(Error::InvalidHost),
-        }
-    }
-
-    fn host(&self) -> Result<String, Error> {
-        match self.url.host() {
-            Some(Host::Ipv4(ipv4)) => Ok(ipv4.to_string()),
-            Some(Host::Ipv6(ipv6)) => Ok(ipv6.to_string()),
-            Some(Host::Domain(domain)) => Ok(domain.to_string()),
-            None => Err(Error::InvalidHost),
-        }
-    }
-
-    fn host_vec(&self) -> Result<Vec<u8>, Error> {
-        match self.url.host() {
-            Some(Host::Ipv4(ipv4)) => Ok(ipv4.octets().to_vec()),
-            Some(Host::Ipv6(ipv6)) => Ok(ipv6.octets().to_vec()),
-            Some(Host::Domain(domain)) => Ok(domain.as_bytes().to_vec()),
-            None => Err(Error::InvalidHost),
-        }
-    }
-
-    fn port(&self) -> Vec<u8> {
-        match self.url.port_or_known_default() {
-            Some(port) => vec![((port >> 8) & 0xff) as u8, (port & 0xff) as u8],
-            None => vec![0u8, 80u8],
-        }
-    }
-
-    fn to_vec(&self) -> io::Result<Vec<u8>> {
-        let mut vec = Vec::new();
-        vec.push(self.addr_type()?);
-        match self.url.host() {
-            Some(Host::Ipv4(_)) => vec.append(&mut self.host_vec()?),
-            Some(Host::Ipv6(_)) => vec.append(&mut self.host_vec()?),
-            Some(Host::Domain(_)) => {
-                let mut addr = self.host_vec()?;
-                vec.push(addr.len() as u8);
-                vec.append(&mut addr);
-            }
-            None => (),
-        }
-        vec.append(&mut self.port());
-        Ok(vec)
-    }
-
-    fn path(&self) -> String {
-        self.url.path().to_string()
-    }
-}
+use crate::errors::HttpError;
+use crate::addr::Addr;
 
 #[derive(Clone, Copy)]
 enum AuthMethod {
@@ -131,7 +39,7 @@ impl SocksAuth {
 }
 
 #[derive(Debug)]
-pub enum Stream {
+enum Stream {
     Tcp(TcpStream),
     Tls(Box<TlsStream<TcpStream>>),
 }
@@ -144,7 +52,7 @@ fn initial_greeting(socket: &mut TcpStream, auth: &SocksAuth) -> io::Result<()> 
     socket.write_all(&[5u8, 1u8, auth.method as u8])
 }
 
-fn choise_communicated(socket: &mut TcpStream) -> Result<[u8; 2], Error> {
+fn choise_communicated(socket: &mut TcpStream) -> Result<[u8; 2], HttpError> {
     // The server's choice is communicated:
     //      field 1: SOCKS version, 1 byte (0x05 for this version)
     //      field 2: chosen authentication method, 1 byte, or 0xFF if no acceptable methods were offered
@@ -153,14 +61,14 @@ fn choise_communicated(socket: &mut TcpStream) -> Result<[u8; 2], Error> {
     Ok(buf)
 }
 
-fn is_valid_socks_version(value: u8) -> Result<(), Error> {
+fn is_valid_socks_version(value: u8) -> Result<(), HttpError> {
     match value {
         5u8 => Ok(()),
-        _ => Err(Error::InvalidServerVersion),
+        _ => Err(HttpError::InvalidServerVersion),
     }
 }
 
-fn try_auth(socket: &mut TcpStream, value: u8, auth: &SocksAuth) -> Result<(), Error> {
+fn try_auth(socket: &mut TcpStream, value: u8, auth: &SocksAuth) -> Result<(), HttpError> {
     if value == auth.method as u8 && value == 2u8 {
         // For username/password authentication the client's authentication request is
         //     field 1: version number, 1 byte (0x01 for current version of username/password authentication)
@@ -182,14 +90,14 @@ fn try_auth(socket: &mut TcpStream, value: u8, auth: &SocksAuth) -> Result<(), E
         //         0x00: success
         //         any other value is a failure, connection must be closed
         match (buf[0] != 1u8, buf[1] != 0u8) {
-            (true, _) => Err(Error::InvalidAuthVersion),
-            (_, true) => Err(Error::AuthFailure),
+            (true, _) => Err(HttpError::InvalidAuthVersion),
+            (_, true) => Err(HttpError::AuthFailure),
             _ => Ok(()),
         }
     } else if value == auth.method as u8 {
         Ok(())
     } else {
-        Err(Error::InvalidAuthMethod)
+        Err(HttpError::InvalidAuthMethod)
     }
 }
 
@@ -218,7 +126,7 @@ fn request_connection(socket: &mut TcpStream, target: Vec<u8>) -> io::Result<()>
     socket.write_all(&packet)
 }
 
-fn get_server_reponse(socket: &mut TcpStream) -> Result<(), Error> {
+fn get_server_reponse(socket: &mut TcpStream) -> Result<(), HttpError> {
     let mut buf = [0u8; 3];
     socket.read_exact(&mut buf)?;
     // Server response:
@@ -236,25 +144,25 @@ fn get_server_reponse(socket: &mut TcpStream) -> Result<(), Error> {
     //         0x08: address type not supported
     match buf[1] {
         0 => Ok(()),
-        1 => Err(Error::GeneralFailure),
-        2 => Err(Error::InvalidRuleset),
-        3 => Err(Error::NetworkUnreachable),
-        4 => Err(Error::HostUnreachable),
-        5 => Err(Error::RefusedByHost),
-        6 => Err(Error::TtlExpired),
-        7 => Err(Error::InvalidCommandProtocol),
-        8 => Err(Error::InvalidAddressType),
-        _ => Err(Error::UnknownError),
+        1 => Err(HttpError::GeneralFailure),
+        2 => Err(HttpError::InvalidRuleset),
+        3 => Err(HttpError::NetworkUnreachable),
+        4 => Err(HttpError::HostUnreachable),
+        5 => Err(HttpError::RefusedByHost),
+        6 => Err(HttpError::TtlExpired),
+        7 => Err(HttpError::InvalidCommandProtocol),
+        8 => Err(HttpError::InvalidAddressType),
+        _ => Err(HttpError::UnknownError),
     }?;
     //     field 3: reserved, must be 0x00, 1 byte
     if buf[2] != 0u8 {
-        Err(Error::InvalidReservedByte)
+        Err(HttpError::InvalidReservedByte)
     } else {
         Ok(())
     }
 }
 
-fn get_host(socket: &mut TcpStream) -> Result<Host, Error> {
+fn get_host(socket: &mut TcpStream) -> Result<Host, HttpError> {
     let mut buf = [0u8; 1];
     //     field 4: address type, 1 byte:
     //         0x01: IPv4 address
@@ -283,11 +191,11 @@ fn get_host(socket: &mut TcpStream) -> Result<Host, Error> {
             socket.read_exact(&mut buf)?;
             Ok(Host::Ipv6(Ipv6Addr::from(buf)))
         }
-        _ => Err(Error::InvalidAddressType),
+        _ => Err(HttpError::InvalidAddressType),
     }
 }
 
-fn get_port(socket: &mut TcpStream) -> Result<[u8; 2], Error> {
+fn get_port(socket: &mut TcpStream) -> Result<[u8; 2], HttpError> {
     let mut bind_port = [0u8; 2];
     //     field 6: server bound port number in a network byte order, 2 bytes
     socket.read_exact(&mut bind_port)?;
@@ -303,7 +211,7 @@ pub struct SocksStream {
 }
 
 impl SocksStream {
-    pub fn connect(proxy: &str, target: &str) -> Result<SocksStream, Error> {
+    pub fn connect(proxy: &str, target: &str) -> Result<SocksStream, HttpError> {
         Self::handshake(proxy, &target.parse()?, &SocksAuth::new())
     }
 
@@ -312,7 +220,7 @@ impl SocksStream {
         target: &str,
         username: &str,
         password: &str,
-    ) -> Result<SocksStream, Error> {
+    ) -> Result<SocksStream, HttpError> {
         Self::handshake(
             proxy,
             &target.parse()?,
@@ -320,7 +228,7 @@ impl SocksStream {
         )
     }
 
-    fn handshake(proxy: &str, target: &Addr, auth: &SocksAuth) -> Result<SocksStream, Error> {
+    fn handshake(proxy: &str, target: &Addr, auth: &SocksAuth) -> Result<SocksStream, HttpError> {
         let mut socket = TcpStream::connect(proxy)?;
         initial_greeting(&mut socket, auth)?;
         let buf = choise_communicated(&mut socket)?;
@@ -331,11 +239,11 @@ impl SocksStream {
         let _host = get_host(&mut socket)?;
         let _port = get_port(&mut socket)?;
         let stream = if target.is_ssl() {
-            let builder = TlsConnector::new().map_err(Error::TlsConnector)?;
+            let builder = TlsConnector::new().map_err(HttpError::TlsConnector)?;
             Stream::Tls(Box::new(
                 builder
                     .connect(&target.host()?, socket)
-                    .map_err(Error::NativeTls)?,
+                    .map_err(HttpError::NativeTls)?,
             ))
         } else {
             Stream::Tcp(socket)
@@ -348,53 +256,106 @@ impl SocksStream {
             // bind_port,
         })
     }
+
+    // fn get_stream(&self) -> io::Result<TcpStream> {
+    //     let mut stream = match self.stream {
+    //         Stream::Tcp(stream) => stream.try_clone()?,
+    //         Stream::Tls(stream) => *stream,
+    //     };
+    //     Ok(stream)
+    // }
+
+    pub fn get(&mut self) -> io::Result<Vec<u8>> {
+        // let mut stream = self.get_stream?;
+        let request = format!(
+            "GET {} HTTP/1.0\r\nHost: {}\r\n\r\n",
+            self.target.path(),
+            self.target.host()?
+        )
+        .into_bytes();
+        self.stream.write_all(&request)?;
+        self.stream.flush()?;
+        let mut response = vec![];
+        self.stream.read_to_end(&mut response)?;
+        let pos = response
+            .windows(4)
+            .position(|x| x == b"\r\n\r\n")
+            .ok_or_else(|| HttpError::WrongHttp)?;
+        let body = &response[pos + 4..response.len()];
+        Ok(body.to_vec())
+    }
+
+    pub fn post_json(&mut self, body: &str) -> io::Result<Vec<u8>> {
+        let body = if !body.is_empty() {
+            format!("Content-Length: {}\r\n\r\n{}", body.len(), body)
+        } else {
+            String::new()
+        };
+        let request = format!(
+            "POST {} HTTP/1.0\r\nHost: {}\r\nContent-Type: application/json\r\n{}\r\n",
+            self.target.path(),
+            self.target.host()?,
+            body
+        )
+        .into_bytes();
+        self.stream.write_all(&request)?;
+        self.stream.flush()?;
+        let mut response = vec![];
+        self.stream.read_to_end(&mut response)?;
+        let pos = response
+            .windows(4)
+            .position(|x| x == b"\r\n\r\n")
+            .ok_or_else(|| HttpError::WrongHttp)?;
+        let body = &response[pos + 4..response.len()];
+        Ok(body.to_vec())
+    }
 }
 
-pub fn get(proxy: &str, target: &str) -> io::Result<Vec<u8>> {
-    let mut stream = SocksStream::connect(proxy, target)?;
-    let request = format!(
-        "GET {} HTTP/1.0\r\nHost: {}\r\n\r\n",
-        stream.target.path(),
-        stream.target.host()?
-    )
-    .into_bytes();
-    stream.write_all(&request)?;
-    stream.flush()?;
-    let mut response = vec![];
-    stream.read_to_end(&mut response)?;
-    let pos = response
-        .windows(4)
-        .position(|x| x == b"\r\n\r\n")
-        .ok_or_else(|| Error::WrongHttp)?;
-    let body = &response[pos + 4..response.len()];
-    Ok(body.to_vec())
-}
+// pub fn get(proxy: &str, target: &str) -> io::Result<Vec<u8>> {
+//     let mut stream = SocksStream::connect(proxy, target)?;
+//     let request = format!(
+//         "GET {} HTTP/1.0\r\nHost: {}\r\n\r\n",
+//         stream.target.path(),
+//         stream.target.host()?
+//     )
+//     .into_bytes();
+//     stream.write_all(&request)?;
+//     stream.flush()?;
+//     let mut response = vec![];
+//     stream.read_to_end(&mut response)?;
+//     let pos = response
+//         .windows(4)
+//         .position(|x| x == b"\r\n\r\n")
+//         .ok_or_else(|| HttpError::WrongHttp)?;
+//     let body = &response[pos + 4..response.len()];
+//     Ok(body.to_vec())
+// }
 
-pub fn post_json(proxy: &str, target: &str, body: &str) -> io::Result<Vec<u8>> {
-    let mut stream = SocksStream::connect(proxy, target)?;
-    let body = if !body.is_empty() {
-        format!("Content-Length: {}\r\n\r\n{}", body.len(), body)
-    } else {
-        String::new()
-    };
-    let request = format!(
-        "POST {} HTTP/1.0\r\nHost: {}\r\nContent-Type: application/json\r\n{}\r\n",
-        stream.target.path(),
-        stream.target.host()?,
-        body
-    )
-    .into_bytes();
-    stream.write_all(&request)?;
-    stream.flush()?;
-    let mut response = vec![];
-    stream.read_to_end(&mut response)?;
-    let pos = response
-        .windows(4)
-        .position(|x| x == b"\r\n\r\n")
-        .ok_or_else(|| Error::WrongHttp)?;
-    let body = &response[pos + 4..response.len()];
-    Ok(body.to_vec())
-}
+// pub fn post_json(proxy: &str, target: &str, body: &str) -> io::Result<Vec<u8>> {
+//     let mut stream = SocksStream::connect(proxy, target)?;
+//     let body = if !body.is_empty() {
+//         format!("Content-Length: {}\r\n\r\n{}", body.len(), body)
+//     } else {
+//         String::new()
+//     };
+//     let request = format!(
+//         "POST {} HTTP/1.0\r\nHost: {}\r\nContent-Type: application/json\r\n{}\r\n",
+//         stream.target.path(),
+//         stream.target.host()?,
+//         body
+//     )
+//     .into_bytes();
+//     stream.write_all(&request)?;
+//     stream.flush()?;
+//     let mut response = vec![];
+//     stream.read_to_end(&mut response)?;
+//     let pos = response
+//         .windows(4)
+//         .position(|x| x == b"\r\n\r\n")
+//         .ok_or_else(|| HttpError::WrongHttp)?;
+//     let body = &response[pos + 4..response.len()];
+//     Ok(body.to_vec())
+// }
 
 impl Read for SocksStream {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
@@ -434,5 +395,35 @@ impl Write for Stream {
             Stream::Tcp(stream) => stream.flush(),
             Stream::Tls(stream) => (*stream).flush(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn socks() {
+        let mut client =
+            SocksStream::connect("127.0.0.1:5959", "https://api.ipify.org").unwrap();
+        let body = client.get().unwrap();
+        let txt = String::from_utf8_lossy(&body);
+        assert!(txt.contains("5.138.250.78"));
+    }
+
+    #[test]
+    fn socks_auth() {
+        let mut client =
+            SocksStream::connect_plain("127.0.0.1:5757", "https://api.ipify.org", "test", "tset").unwrap();
+        let body = client.get().unwrap();
+        let txt = String::from_utf8_lossy(&body);
+        assert!(txt.contains("5.138.250.78"));
+    }
+
+    #[test]
+    fn socks_bad_auth() {
+        let client =
+            SocksStream::connect_plain("127.0.0.1:5757", "https://api.ipify.org", "test", "test");
+        assert!(client.is_err());
     }
 }
