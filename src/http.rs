@@ -8,7 +8,7 @@ use crate::stream::Stream;
 pub struct HttpStream {
     stream: Stream,
     target: Addr,
-    is_proxy: bool,
+    // is_proxy: bool,
     // bind_addr: Host,
     // bind_port: [u8; 2],
 }
@@ -25,7 +25,7 @@ impl HttpStream {
         Ok(HttpStream {
             stream,
             target,
-            is_proxy: true,
+            // is_proxy: true,
         })
     }
 
@@ -41,7 +41,7 @@ impl HttpStream {
         Ok(HttpStream {
             stream,
             target,
-            is_proxy: true,
+            // is_proxy: true,
         })
     }
 
