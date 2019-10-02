@@ -1,6 +1,6 @@
-use std::str::FromStr;
 use std::io;
 use std::net::SocketAddr;
+use std::str::FromStr;
 
 use url::{Host, Url};
 
@@ -101,7 +101,7 @@ impl Addr {
 
     pub fn socket_addr(&self) -> Result<SocketAddr, HttpError> {
         let socket_addrs = self.socket_addrs()?;
-        if socket_addrs.len() > 0 {
+        if !socket_addrs.is_empty() {
             Ok(socket_addrs[0])
         } else {
             Err(HttpError::EmptyVec)
@@ -109,6 +109,8 @@ impl Addr {
     }
 
     pub fn socket_addrs(&self) -> Result<Vec<SocketAddr>, HttpError> {
-        self.url.socket_addrs(|| self.url.port_or_known_default()).map_err(HttpError::Io)
+        self.url
+            .socket_addrs(|| self.url.port_or_known_default())
+            .map_err(HttpError::Io)
     }
 }

@@ -4,10 +4,11 @@
 
 mod errors;
 mod http;
-// mod request;
+mod client;
 // mod url;
-mod socks;
 mod addr;
+mod socks;
+mod stream;
 
 // fn get_ip() {
 //     let mut stream = TcpStream::connect("api.ipify.org:80").unwrap();

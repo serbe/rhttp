@@ -92,6 +92,8 @@ pub enum HttpError {
     ReplyOtherReply(&'static str, u8),
     #[fail(display = "Empty vector")]
     EmptyVec,
+    #[fail(display = "Unsupported proxy")]
+    UnsupportedProxy,
 }
 
 impl From<std::io::Error> for HttpError {

@@ -1,17 +1,9 @@
-use std::net::{Ipv4Addr, Ipv6Addr, TcpStream};
 use std::io::{self, Read, Write};
-
-use native_tls::{TlsConnector, TlsStream};
-use url::{Host};
+use std::net::TcpStream;
 
 use crate::addr::Addr;
 use crate::errors::HttpError;
-
-#[derive(Debug)]
-enum Stream {
-    Tcp(TcpStream),
-    Tls(Box<TlsStream<TcpStream>>),
-}
+use crate::stream::Stream;
 
 pub struct HttpStream {
     stream: Stream,
@@ -23,54 +15,34 @@ pub struct HttpStream {
 
 impl HttpStream {
     pub fn connect(target: &str) -> Result<Self, HttpError> {
-        let addr: Addr = target.parse()?;
-        let stream = TcpStream::connect(addr.socket_addr()?)?;
-        if addr.is_ssl() {
-            let builder = TlsConnector::new().map_err(HttpError::TlsConnector)?;
-            let tls_stream = Stream::Tls(Box::new(
-                builder
-                    .connect(&addr.host()?, stream)
-                    .map_err(HttpError::NativeTls)?,
-            ));
-            Ok(HttpStream{
-                stream: tls_stream,
-                target: addr,
-                is_proxy: false,
-            })
-            
+        let target: Addr = target.parse()?;
+        let stream = TcpStream::connect(target.socket_addr()?)?;
+        let stream = if target.is_ssl() {
+            Stream::new_tls(&target.host()?, stream)?
         } else {
-            Ok(HttpStream{
-                stream: Stream::Tcp(stream),
-                target: addr,
-                is_proxy: false,
-            })
-        }
+            Stream::new_tcp(stream)
+        };
+        Ok(HttpStream {
+            stream,
+            target,
+            is_proxy: true,
+        })
     }
 
     pub fn connect_proxy(proxy: &str, target: &str) -> Result<Self, HttpError> {
-        let addr: Addr = target.parse()?;
+        let target: Addr = target.parse()?;
         let proxy_addr: Addr = proxy.parse()?;
         let stream = TcpStream::connect(proxy_addr.socket_addr()?)?;
-        if proxy_addr.is_ssl() {
-            let builder = TlsConnector::new().map_err(HttpError::TlsConnector)?;
-            let tls_stream = Stream::Tls(Box::new(
-                builder
-                    .connect(&proxy_addr.host()?, stream)
-                    .map_err(HttpError::NativeTls)?,
-            ));
-            Ok(HttpStream{
-                stream: tls_stream,
-                target: addr,
-                is_proxy: true,
-            })
-            
+        let stream = if proxy_addr.is_ssl() {
+            Stream::new_tls(&proxy_addr.host()?, stream)?
         } else {
-            Ok(HttpStream{
-                stream: Stream::Tcp(stream),
-                target: addr,
-                is_proxy: true,
-            })
-        }
+            Stream::new_tcp(stream)
+        };
+        Ok(HttpStream {
+            stream,
+            target,
+            is_proxy: true,
+        })
     }
 
     pub fn get(&mut self) -> io::Result<Vec<u8>> {
@@ -118,46 +90,21 @@ impl HttpStream {
     }
 }
 
-impl Read for HttpStream {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.stream.read(buf)
-    }
-}
+// impl Read for HttpStream {
+//     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+//         self.stream.read(buf)
+//     }
+// }
 
-impl Write for HttpStream {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.stream.write(buf)
-    }
+// impl Write for HttpStream {
+//     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+//         self.stream.write(buf)
+//     }
 
-    fn flush(&mut self) -> io::Result<()> {
-        self.stream.flush()
-    }
-}
-
-impl Read for Stream {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        match self {
-            Stream::Tcp(stream) => stream.read(buf),
-            Stream::Tls(stream) => (*stream).read(buf),
-        }
-    }
-}
-
-impl Write for Stream {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match self {
-            Stream::Tcp(stream) => stream.write(buf),
-            Stream::Tls(stream) => (*stream).write(buf),
-        }
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        match self {
-            Stream::Tcp(stream) => stream.flush(),
-            Stream::Tls(stream) => (*stream).flush(),
-        }
-    }
-}
+//     fn flush(&mut self) -> io::Result<()> {
+//         self.stream.flush()
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
@@ -165,11 +112,18 @@ mod tests {
 
     #[test]
     fn http() {
-        let mut client =
-            HttpStream::connect("https://api.ipify.org").unwrap();
+        let mut client = HttpStream::connect("http://api.ipify.org").unwrap();
         let body = client.get().unwrap();
         let txt = String::from_utf8_lossy(&body);
-        assert!(txt.contains("5.138.250.78"));
+        assert!(txt.contains("92.50.223.31"));
+    }
+
+    #[test]
+    fn https() {
+        let mut client = HttpStream::connect("https://api.ipify.org").unwrap();
+        let body = client.get().unwrap();
+        let txt = String::from_utf8_lossy(&body);
+        assert!(txt.contains("92.50.223.31"));
     }
 
     #[test]
@@ -178,6 +132,6 @@ mod tests {
             HttpStream::connect_proxy("127.0.0.1:5858", "https://api.ipify.org").unwrap();
         let body = client.get().unwrap();
         let txt = String::from_utf8_lossy(&body);
-        assert!(txt.contains("5.138.250.78"));
+        assert!(txt.contains("92.50.223.31"));
     }
 }

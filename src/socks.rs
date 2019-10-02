@@ -1,12 +1,12 @@
-#![allow(dead_code)]
+// #![allow(dead_code)]
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, Ipv6Addr, TcpStream};
 
-use native_tls::{TlsConnector, TlsStream};
-use url::{Host};
+use url::Host;
 
-use crate::errors::HttpError;
 use crate::addr::Addr;
+use crate::errors::HttpError;
+use crate::stream::Stream;
 
 #[derive(Clone, Copy)]
 enum AuthMethod {
@@ -36,12 +36,6 @@ impl SocksAuth {
             password: Vec::new(),
         }
     }
-}
-
-#[derive(Debug)]
-enum Stream {
-    Tcp(TcpStream),
-    Tls(Box<TlsStream<TcpStream>>),
 }
 
 fn initial_greeting(socket: &mut TcpStream, auth: &SocksAuth) -> io::Result<()> {
@@ -229,7 +223,8 @@ impl SocksStream {
     }
 
     fn handshake(proxy: &str, target: &Addr, auth: &SocksAuth) -> Result<SocksStream, HttpError> {
-        let mut socket = TcpStream::connect(proxy)?;
+        let proxy_addr: Addr = proxy.parse()?;
+        let mut socket = TcpStream::connect(proxy_addr.socket_addr()?)?;
         initial_greeting(&mut socket, auth)?;
         let buf = choise_communicated(&mut socket)?;
         is_valid_socks_version(buf[0])?;
@@ -239,14 +234,9 @@ impl SocksStream {
         let _host = get_host(&mut socket)?;
         let _port = get_port(&mut socket)?;
         let stream = if target.is_ssl() {
-            let builder = TlsConnector::new().map_err(HttpError::TlsConnector)?;
-            Stream::Tls(Box::new(
-                builder
-                    .connect(&target.host()?, socket)
-                    .map_err(HttpError::NativeTls)?,
-            ))
+            Stream::new_tls(&target.host()?, socket)?
         } else {
-            Stream::Tcp(socket)
+            Stream::new_tcp(socket)
         };
 
         Ok(SocksStream {
@@ -357,46 +347,21 @@ impl SocksStream {
 //     Ok(body.to_vec())
 // }
 
-impl Read for SocksStream {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.stream.read(buf)
-    }
-}
+// impl Read for SocksStream {
+//     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+//         self.stream.read(buf)
+//     }
+// }
 
-impl Write for SocksStream {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.stream.write(buf)
-    }
+// impl Write for SocksStream {
+//     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+//         self.stream.write(buf)
+//     }
 
-    fn flush(&mut self) -> io::Result<()> {
-        self.stream.flush()
-    }
-}
-
-impl Read for Stream {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        match self {
-            Stream::Tcp(stream) => stream.read(buf),
-            Stream::Tls(stream) => (*stream).read(buf),
-        }
-    }
-}
-
-impl Write for Stream {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match self {
-            Stream::Tcp(stream) => stream.write(buf),
-            Stream::Tls(stream) => (*stream).write(buf),
-        }
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        match self {
-            Stream::Tcp(stream) => stream.flush(),
-            Stream::Tls(stream) => (*stream).flush(),
-        }
-    }
-}
+//     fn flush(&mut self) -> io::Result<()> {
+//         self.stream.flush()
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
@@ -404,20 +369,20 @@ mod tests {
 
     #[test]
     fn socks() {
-        let mut client =
-            SocksStream::connect("127.0.0.1:5959", "https://api.ipify.org").unwrap();
+        let mut client = SocksStream::connect("127.0.0.1:5959", "https://api.ipify.org").unwrap();
         let body = client.get().unwrap();
         let txt = String::from_utf8_lossy(&body);
-        assert!(txt.contains("5.138.250.78"));
+        assert!(txt.contains("92.50.223.31"));
     }
 
     #[test]
     fn socks_auth() {
         let mut client =
-            SocksStream::connect_plain("127.0.0.1:5757", "https://api.ipify.org", "test", "tset").unwrap();
+            SocksStream::connect_plain("127.0.0.1:5757", "https://api.ipify.org", "test", "tset")
+                .unwrap();
         let body = client.get().unwrap();
         let txt = String::from_utf8_lossy(&body);
-        assert!(txt.contains("5.138.250.78"));
+        assert!(txt.contains("92.50.223.31"));
     }
 
     #[test]
