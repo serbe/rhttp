@@ -21,6 +21,8 @@ impl Client {
         let scheme = proxy_url.scheme();
         if scheme == "http" {
             Client::connect_http(proxy_with_scheme, target)
+        } else if scheme == "https" {
+            Client::connect_http(proxy_with_scheme, target)
         } else if scheme == "socks5" {
             Client::connect_socks(proxy_with_scheme, target)
         } else {
