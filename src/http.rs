@@ -33,11 +33,12 @@ impl HttpStream {
         let target: Addr = target.parse()?;
         let proxy_addr: Addr = proxy.parse()?;
         let stream = TcpStream::connect(proxy_addr.socket_addr()?)?;
-        let stream = if proxy_addr.is_ssl() {
-            Stream::new_tls(&proxy_addr.host()?, stream)?
-        } else {
-            Stream::new_tcp(stream)
-        };
+        // let stream = if proxy_addr.is_ssl() {
+        //     Stream::new_tls(&proxy_addr.host()?, stream)?
+        // } else {
+        //     Stream::new_tcp(stream)
+        // };
+        let stream = Stream::new_tcp(stream);
         Ok(HttpStream {
             stream,
             target,
