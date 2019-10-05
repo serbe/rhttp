@@ -3,7 +3,7 @@ use std::net::TcpStream;
 
 use native_tls::{TlsConnector, TlsStream};
 
-use crate::errors::HttpError;
+use crate::error::{Error, Result};
 
 #[derive(Debug)]
 pub enum Stream {
@@ -16,12 +16,12 @@ impl Stream {
         Stream::Tcp(stream)
     }
 
-    pub fn new_tls(domain: &str, stream: TcpStream) -> Result<Self, HttpError> {
-        let builder = TlsConnector::new().map_err(HttpError::TlsConnector)?;
+    pub fn new_tls(domain: &str, stream: TcpStream) -> Result<Self> {
+        let builder = TlsConnector::new().map_err(Error::TlsConnector)?;
         Ok(Stream::Tls(Box::new(
             builder
                 .connect(domain, stream)
-                .map_err(HttpError::NativeTls)?,
+                .map_err(Error::NativeTls)?,
         )))
     }
 }

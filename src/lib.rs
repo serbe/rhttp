@@ -1,7 +1,7 @@
+pub mod addr;
 pub mod client;
-pub mod errors;
+pub mod error;
 pub mod http;
 pub mod socks;
-pub mod addr;
 pub mod stream;
-
+pub mod url;

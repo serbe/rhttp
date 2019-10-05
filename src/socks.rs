@@ -5,7 +5,7 @@ use std::net::{Ipv4Addr, Ipv6Addr, TcpStream};
 use url::Host;
 
 use crate::addr::Addr;
-use crate::errors::HttpError;
+use crate::error::{Error, Result};
 use crate::stream::Stream;
 
 #[derive(Clone, Copy)]
@@ -46,7 +46,7 @@ fn initial_greeting(socket: &mut TcpStream, auth: &SocksAuth) -> io::Result<()> 
     socket.write_all(&[5u8, 1u8, auth.method as u8])
 }
 
-fn choise_communicated(socket: &mut TcpStream) -> Result<[u8; 2], HttpError> {
+fn choise_communicated(socket: &mut TcpStream) -> Result<[u8; 2]> {
     // The server's choice is communicated:
     //      field 1: SOCKS version, 1 byte (0x05 for this version)
     //      field 2: chosen authentication method, 1 byte, or 0xFF if no acceptable methods were offered
@@ -55,14 +55,14 @@ fn choise_communicated(socket: &mut TcpStream) -> Result<[u8; 2], HttpError> {
     Ok(buf)
 }
 
-fn is_valid_socks_version(value: u8) -> Result<(), HttpError> {
+fn is_valid_socks_version(value: u8) -> Result<()> {
     match value {
         5u8 => Ok(()),
-        _ => Err(HttpError::InvalidServerVersion),
+        _ => Err(Error::InvalidServerVersion),
     }
 }
 
-fn try_auth(socket: &mut TcpStream, value: u8, auth: &SocksAuth) -> Result<(), HttpError> {
+fn try_auth(socket: &mut TcpStream, value: u8, auth: &SocksAuth) -> Result<()> {
     if value == auth.method as u8 && value == 2u8 {
         // For username/password authentication the client's authentication request is
         //     field 1: version number, 1 byte (0x01 for current version of username/password authentication)
@@ -84,14 +84,14 @@ fn try_auth(socket: &mut TcpStream, value: u8, auth: &SocksAuth) -> Result<(), H
         //         0x00: success
         //         any other value is a failure, connection must be closed
         match (buf[0] != 1u8, buf[1] != 0u8) {
-            (true, _) => Err(HttpError::InvalidAuthVersion),
-            (_, true) => Err(HttpError::AuthFailure),
+            (true, _) => Err(Error::InvalidAuthVersion),
+            (_, true) => Err(Error::AuthFailure),
             _ => Ok(()),
         }
     } else if value == auth.method as u8 {
         Ok(())
     } else {
-        Err(HttpError::InvalidAuthMethod)
+        Err(Error::InvalidAuthMethod)
     }
 }
 
@@ -120,7 +120,7 @@ fn request_connection(socket: &mut TcpStream, target: Vec<u8>) -> io::Result<()>
     socket.write_all(&packet)
 }
 
-fn get_server_reponse(socket: &mut TcpStream) -> Result<(), HttpError> {
+fn get_server_reponse(socket: &mut TcpStream) -> Result<()> {
     let mut buf = [0u8; 3];
     socket.read_exact(&mut buf)?;
     // Server response:
@@ -138,25 +138,25 @@ fn get_server_reponse(socket: &mut TcpStream) -> Result<(), HttpError> {
     //         0x08: address type not supported
     match buf[1] {
         0 => Ok(()),
-        1 => Err(HttpError::GeneralFailure),
-        2 => Err(HttpError::InvalidRuleset),
-        3 => Err(HttpError::NetworkUnreachable),
-        4 => Err(HttpError::HostUnreachable),
-        5 => Err(HttpError::RefusedByHost),
-        6 => Err(HttpError::TtlExpired),
-        7 => Err(HttpError::InvalidCommandProtocol),
-        8 => Err(HttpError::InvalidAddressType),
-        _ => Err(HttpError::UnknownError),
+        1 => Err(Error::GeneralFailure),
+        2 => Err(Error::InvalidRuleset),
+        3 => Err(Error::NetworkUnreachable),
+        4 => Err(Error::HostUnreachable),
+        5 => Err(Error::RefusedByHost),
+        6 => Err(Error::TtlExpired),
+        7 => Err(Error::InvalidCommandProtocol),
+        8 => Err(Error::InvalidAddressType),
+        _ => Err(Error::UnknownError),
     }?;
     //     field 3: reserved, must be 0x00, 1 byte
     if buf[2] != 0u8 {
-        Err(HttpError::InvalidReservedByte)
+        Err(Error::InvalidReservedByte)
     } else {
         Ok(())
     }
 }
 
-fn get_host(socket: &mut TcpStream) -> Result<Host, HttpError> {
+fn get_host(socket: &mut TcpStream) -> Result<Host> {
     let mut buf = [0u8; 1];
     //     field 4: address type, 1 byte:
     //         0x01: IPv4 address
@@ -185,11 +185,11 @@ fn get_host(socket: &mut TcpStream) -> Result<Host, HttpError> {
             socket.read_exact(&mut buf)?;
             Ok(Host::Ipv6(Ipv6Addr::from(buf)))
         }
-        _ => Err(HttpError::InvalidAddressType),
+        _ => Err(Error::InvalidAddressType),
     }
 }
 
-fn get_port(socket: &mut TcpStream) -> Result<[u8; 2], HttpError> {
+fn get_port(socket: &mut TcpStream) -> Result<[u8; 2]> {
     let mut bind_port = [0u8; 2];
     //     field 6: server bound port number in a network byte order, 2 bytes
     socket.read_exact(&mut bind_port)?;
@@ -205,7 +205,7 @@ pub struct SocksStream {
 }
 
 impl SocksStream {
-    pub fn connect(proxy: &str, target: &str) -> Result<SocksStream, HttpError> {
+    pub fn connect(proxy: &str, target: &str) -> Result<SocksStream> {
         Self::handshake(proxy, &target.parse()?, &SocksAuth::new())
     }
 
@@ -214,7 +214,7 @@ impl SocksStream {
         target: &str,
         username: &str,
         password: &str,
-    ) -> Result<SocksStream, HttpError> {
+    ) -> Result<SocksStream> {
         Self::handshake(
             proxy,
             &target.parse()?,
@@ -222,7 +222,7 @@ impl SocksStream {
         )
     }
 
-    fn handshake(proxy: &str, target: &Addr, auth: &SocksAuth) -> Result<SocksStream, HttpError> {
+    fn handshake(proxy: &str, target: &Addr, auth: &SocksAuth) -> Result<SocksStream> {
         let proxy_addr: Addr = proxy.parse()?;
         let mut socket = TcpStream::connect(proxy_addr.socket_addr()?)?;
         initial_greeting(&mut socket, auth)?;
@@ -270,7 +270,7 @@ impl SocksStream {
         let pos = response
             .windows(4)
             .position(|x| x == b"\r\n\r\n")
-            .ok_or_else(|| HttpError::WrongHttp)?;
+            .ok_or_else(|| Error::WrongHttp)?;
         let body = &response[pos + 4..response.len()];
         Ok(body.to_vec())
     }
@@ -295,7 +295,7 @@ impl SocksStream {
         let pos = response
             .windows(4)
             .position(|x| x == b"\r\n\r\n")
-            .ok_or_else(|| HttpError::WrongHttp)?;
+            .ok_or_else(|| Error::WrongHttp)?;
         let body = &response[pos + 4..response.len()];
         Ok(body.to_vec())
     }
@@ -316,7 +316,7 @@ impl SocksStream {
 //     let pos = response
 //         .windows(4)
 //         .position(|x| x == b"\r\n\r\n")
-//         .ok_or_else(|| HttpError::WrongHttp)?;
+//         .ok_or_else(|| Error::WrongHttp)?;
 //     let body = &response[pos + 4..response.len()];
 //     Ok(body.to_vec())
 // }
@@ -342,7 +342,7 @@ impl SocksStream {
 //     let pos = response
 //         .windows(4)
 //         .position(|x| x == b"\r\n\r\n")
-//         .ok_or_else(|| HttpError::WrongHttp)?;
+//         .ok_or_else(|| Error::WrongHttp)?;
 //     let body = &response[pos + 4..response.len()];
 //     Ok(body.to_vec())
 // }

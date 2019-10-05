@@ -2,7 +2,7 @@ use std::io::{self, Read, Write};
 use std::net::TcpStream;
 
 use crate::addr::Addr;
-use crate::errors::HttpError;
+use crate::error::{Error, Result};
 use crate::stream::Stream;
 
 pub struct HttpStream {
@@ -14,7 +14,7 @@ pub struct HttpStream {
 }
 
 impl HttpStream {
-    pub fn connect(target: &str) -> Result<Self, HttpError> {
+    pub fn connect(target: &str) -> Result<Self> {
         let target: Addr = target.parse()?;
         let stream = TcpStream::connect(target.socket_addr()?)?;
         let stream = if target.is_ssl() {
@@ -29,7 +29,7 @@ impl HttpStream {
         })
     }
 
-    pub fn connect_proxy(proxy: &str, target: &str) -> Result<Self, HttpError> {
+    pub fn connect_proxy(proxy: &str, target: &str) -> Result<Self> {
         let target: Addr = target.parse()?;
         let proxy_addr: Addr = proxy.parse()?;
         let stream = TcpStream::connect(proxy_addr.socket_addr()?)?;
@@ -60,7 +60,7 @@ impl HttpStream {
         let pos = response
             .windows(4)
             .position(|x| x == b"\r\n\r\n")
-            .ok_or_else(|| HttpError::WrongHttp)?;
+            .ok_or_else(|| Error::WrongHttp)?;
         let body = &response[pos + 4..response.len()];
         Ok(body.to_vec())
     }
@@ -85,7 +85,7 @@ impl HttpStream {
         let pos = response
             .windows(4)
             .position(|x| x == b"\r\n\r\n")
-            .ok_or_else(|| HttpError::WrongHttp)?;
+            .ok_or_else(|| Error::WrongHttp)?;
         let body = &response[pos + 4..response.len()];
         Ok(body.to_vec())
     }

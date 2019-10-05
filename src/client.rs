@@ -2,7 +2,7 @@ use std::io;
 
 use url::Url;
 
-use crate::errors::HttpError;
+use crate::error::{Error, Result};
 use crate::http::HttpStream;
 use crate::socks::SocksStream;
 
@@ -12,12 +12,12 @@ pub enum Client {
 }
 
 impl Client {
-    pub fn connect(target: &str) -> Result<Self, HttpError> {
+    pub fn connect(target: &str) -> Result<Self> {
         Ok(Client::Http(HttpStream::connect(target)?))
     }
 
-    pub fn connect_proxy(proxy_with_scheme: &str, target: &str) -> Result<Self, HttpError> {
-        let proxy_url = Url::parse(proxy_with_scheme).map_err(HttpError::UrlParse)?;
+    pub fn connect_proxy(proxy_with_scheme: &str, target: &str) -> Result<Self> {
+        let proxy_url = Url::parse(proxy_with_scheme).map_err(Error::UrlParse)?;
         let scheme = proxy_url.scheme();
         if scheme == "http" {
             Client::connect_http(proxy_with_scheme, target)
@@ -26,15 +26,15 @@ impl Client {
         } else if scheme == "socks5" {
             Client::connect_socks(proxy_with_scheme, target)
         } else {
-            Err(HttpError::UnsupportedProxy)
+            Err(Error::UnsupportedProxy)
         }
     }
 
-    pub fn connect_http(proxy: &str, target: &str) -> Result<Self, HttpError> {
+    pub fn connect_http(proxy: &str, target: &str) -> Result<Self> {
         Ok(Client::Http(HttpStream::connect_proxy(proxy, target)?))
     }
 
-    pub fn connect_socks(proxy: &str, target: &str) -> Result<Self, HttpError> {
+    pub fn connect_socks(proxy: &str, target: &str) -> Result<Self> {
         Ok(Client::Socks(SocksStream::connect(proxy, target)?))
     }
 
@@ -43,7 +43,7 @@ impl Client {
         target: &str,
         username: &str,
         password: &str,
-    ) -> Result<Self, HttpError> {
+    ) -> Result<Self> {
         Ok(Client::Socks(SocksStream::connect_plain(
             proxy, target, username, password,
         )?))
@@ -88,7 +88,8 @@ mod tests {
 
     #[test]
     fn client_socks() {
-        let mut client = Client::connect_proxy("socks5://127.0.0.1:5959", "https://api.ipify.org").unwrap();
+        let mut client =
+            Client::connect_proxy("socks5://127.0.0.1:5959", "https://api.ipify.org").unwrap();
         let body = client.get().unwrap();
         let txt = String::from_utf8_lossy(&body);
         assert!(txt.contains("92.50.223.31"));

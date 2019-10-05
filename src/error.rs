@@ -1,7 +1,9 @@
 use failure::Fail;
 
+pub type Result<T> = std::result::Result<T, Error>;
+
 #[derive(Debug, Fail)]
-pub enum HttpError {
+pub enum Error {
     #[fail(display = "{}", _0)]
     Io(#[cause] std::io::Error),
     #[fail(display = "{}", _0)]
@@ -96,32 +98,32 @@ pub enum HttpError {
     UnsupportedProxy,
 }
 
-impl From<std::io::Error> for HttpError {
-    fn from(err: std::io::Error) -> HttpError {
-        HttpError::Io(err)
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Error {
+        Error::Io(err)
     }
 }
 
-impl From<String> for HttpError {
-    fn from(err: String) -> HttpError {
-        HttpError::Io(std::io::Error::new(
+impl From<String> for Error {
+    fn from(err: String) -> Error {
+        Error::Io(std::io::Error::new(
             std::io::ErrorKind::Other,
             err.to_string(),
         ))
     }
 }
 
-impl From<&str> for HttpError {
-    fn from(err: &str) -> HttpError {
-        HttpError::Io(std::io::Error::new(
+impl From<&str> for Error {
+    fn from(err: &str) -> Error {
+        Error::Io(std::io::Error::new(
             std::io::ErrorKind::Other,
             err.to_string(),
         ))
     }
 }
 
-impl From<HttpError> for std::io::Error {
-    fn from(err: HttpError) -> std::io::Error {
+impl From<Error> for std::io::Error {
+    fn from(err: Error) -> std::io::Error {
         std::io::Error::new(std::io::ErrorKind::Other, err.to_string())
     }
 }

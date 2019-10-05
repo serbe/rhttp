@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use url::{Host, Url};
 
-use crate::errors::HttpError;
+use crate::error::{Error, Result};
 
 #[derive(Debug, Clone)]
 pub struct Addr {
@@ -12,9 +12,9 @@ pub struct Addr {
 }
 
 impl FromStr for Addr {
-    type Err = HttpError;
+    type Err = Error;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> Result<Self> {
         let mut raw = String::from(s);
         if !raw.contains("://") {
             let mut is_secure = false;
@@ -33,7 +33,7 @@ impl FromStr for Addr {
                 raw.insert_str(0, "http://");
             }
         }
-        let url = Url::parse(&raw).map_err(HttpError::UrlParse)?;
+        let url = Url::parse(&raw).map_err(Error::UrlParse)?;
 
         Ok(Addr { url })
     }
@@ -44,30 +44,30 @@ impl Addr {
         self.url.scheme() == "https"
     }
 
-    pub fn addr_type(&self) -> Result<u8, HttpError> {
+    pub fn addr_type(&self) -> Result<u8> {
         match self.url.host() {
             Some(Host::Ipv4(_)) => Ok(1u8),
             Some(Host::Ipv6(_)) => Ok(4u8),
             Some(Host::Domain(_)) => Ok(3u8),
-            _ => Err(HttpError::InvalidHost),
+            _ => Err(Error::InvalidHost),
         }
     }
 
-    pub fn host(&self) -> Result<String, HttpError> {
+    pub fn host(&self) -> Result<String> {
         match self.url.host() {
             Some(Host::Ipv4(ipv4)) => Ok(ipv4.to_string()),
             Some(Host::Ipv6(ipv6)) => Ok(ipv6.to_string()),
             Some(Host::Domain(domain)) => Ok(domain.to_string()),
-            None => Err(HttpError::InvalidHost),
+            None => Err(Error::InvalidHost),
         }
     }
 
-    pub fn host_vec(&self) -> Result<Vec<u8>, HttpError> {
+    pub fn host_vec(&self) -> Result<Vec<u8>> {
         match self.url.host() {
             Some(Host::Ipv4(ipv4)) => Ok(ipv4.octets().to_vec()),
             Some(Host::Ipv6(ipv6)) => Ok(ipv6.octets().to_vec()),
             Some(Host::Domain(domain)) => Ok(domain.as_bytes().to_vec()),
-            None => Err(HttpError::InvalidHost),
+            None => Err(Error::InvalidHost),
         }
     }
 
@@ -99,18 +99,18 @@ impl Addr {
         self.url.path().to_string()
     }
 
-    pub fn socket_addr(&self) -> Result<SocketAddr, HttpError> {
+    pub fn socket_addr(&self) -> Result<SocketAddr> {
         let socket_addrs = self.socket_addrs()?;
         if !socket_addrs.is_empty() {
             Ok(socket_addrs[0])
         } else {
-            Err(HttpError::EmptyVec)
+            Err(Error::EmptyVec)
         }
     }
 
-    pub fn socket_addrs(&self) -> Result<Vec<SocketAddr>, HttpError> {
+    pub fn socket_addrs(&self) -> Result<Vec<SocketAddr>> {
         self.url
             .socket_addrs(|| self.url.port_or_known_default())
-            .map_err(HttpError::Io)
+            .map_err(Error::Io)
     }
 }

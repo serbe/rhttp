@@ -1,4 +1,4 @@
-use crate::errors::Error;
+use crate::error::{Error, Result};
 // use std::net::{SocketAddr, ToSocketAddrs};
 
 #[derive(Debug, Default, PartialEq)]
@@ -19,7 +19,7 @@ impl<'a> Url<'a> {
         Default::default()
     }
 
-    pub fn from(rawurl: &'static str) -> Result<Self, Error> {
+    pub fn from(rawurl: &'static str) -> Result<Self> {
         if rawurl == "" {
             Err(Error::Empty())?;
         }
@@ -263,8 +263,8 @@ impl<'a> Url<'a> {
 //     }
 // }
 
-fn get_scheme(rawurl: &'static str) -> Result<Option<&'static str>, Error> {
-    for (i, c) in rawurl.chars().enumerate() {
+fn get_scheme(rawurl: &'static str) -> Result<Option<&'static str>> {
+    for (i, c) in rawurl.to_lowercase().chars().enumerate() {
         if 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' {
         } else if '0' <= c && c <= '9' || c == '+' || c == '-' || c == '.' {
             if i == 0 {
@@ -282,7 +282,7 @@ fn get_scheme(rawurl: &'static str) -> Result<Option<&'static str>, Error> {
     Ok(None)
 }
 
-fn check_contains_ctl_byte(s: &'static str) -> Result<(), Error> {
+fn check_contains_ctl_byte(s: &'static str) -> Result<()> {
     if s.bytes().any(|c| c < 32 || c == 0x7f) {
         Err(Error::ContainsCTLByte(s))
     } else {
