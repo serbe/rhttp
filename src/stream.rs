@@ -19,9 +19,7 @@ impl Stream {
     pub fn new_tls(domain: &str, stream: TcpStream) -> Result<Self> {
         let builder = TlsConnector::new().map_err(Error::TlsConnector)?;
         Ok(Stream::Tls(Box::new(
-            builder
-                .connect(domain, stream)
-                .map_err(Error::NativeTls)?,
+            builder.connect(domain, stream).map_err(Error::NativeTls)?,
         )))
     }
 }

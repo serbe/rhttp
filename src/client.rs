@@ -19,11 +19,9 @@ impl Client {
     pub fn connect_proxy(proxy_with_scheme: &str, target: &str) -> Result<Self> {
         let proxy_url = Url::parse(proxy_with_scheme).map_err(Error::UrlParse)?;
         let scheme = proxy_url.scheme();
-        if scheme == "http" {
+        if scheme == "http" || scheme == "https" {
             Client::connect_http(proxy_with_scheme, target)
-        } else if scheme == "https" {
-            Client::connect_http(proxy_with_scheme, target)
-        } else if scheme == "socks5" {
+        } else if scheme == "socks5" || scheme == "socks5h" || scheme == "socks5t" {
             Client::connect_socks(proxy_with_scheme, target)
         } else {
             Err(Error::UnsupportedProxy)
