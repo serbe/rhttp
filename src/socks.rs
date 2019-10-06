@@ -367,12 +367,16 @@ impl SocksStream {
 mod tests {
     use super::*;
 
+    lazy_static! {
+        static ref IP: String = crate::my_ip();
+    }
+
     #[test]
     fn socks() {
         let mut client = SocksStream::connect("127.0.0.1:5959", "https://api.ipify.org").unwrap();
         let body = client.get().unwrap();
         let txt = String::from_utf8_lossy(&body);
-        assert!(txt.contains("92.50.223.31"));
+        assert!(txt.contains(crate::tests::IP.as_str()));
     }
 
     #[test]
@@ -382,7 +386,7 @@ mod tests {
                 .unwrap();
         let body = client.get().unwrap();
         let txt = String::from_utf8_lossy(&body);
-        assert!(txt.contains("92.50.223.31"));
+        assert!(txt.contains(crate::tests::IP.as_str()));
     }
 
     #[test]

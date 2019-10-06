@@ -64,7 +64,7 @@ mod tests {
         let mut client = Client::connect("http://api.ipify.org").unwrap();
         let body = client.get().unwrap();
         let txt = String::from_utf8_lossy(&body);
-        assert!(txt.contains("92.50.223.31"));
+        assert!(txt.contains(crate::tests::IP.as_str()));
     }
 
     #[test]
@@ -72,7 +72,7 @@ mod tests {
         let mut client = Client::connect("https://api.ipify.org").unwrap();
         let body = client.get().unwrap();
         let txt = String::from_utf8_lossy(&body);
-        assert!(txt.contains("92.50.223.31"));
+        assert!(txt.contains(crate::tests::IP.as_str()));
     }
 
     #[test]
@@ -81,7 +81,7 @@ mod tests {
             Client::connect_proxy("http://127.0.0.1:5858", "https://api.ipify.org").unwrap();
         let body = client.get().unwrap();
         let txt = String::from_utf8_lossy(&body);
-        assert!(txt.contains("92.50.223.31"));
+        assert!(txt.contains(crate::tests::IP.as_str()));
     }
 
     #[test]
@@ -90,7 +90,7 @@ mod tests {
             Client::connect_proxy("socks5://127.0.0.1:5959", "https://api.ipify.org").unwrap();
         let body = client.get().unwrap();
         let txt = String::from_utf8_lossy(&body);
-        assert!(txt.contains("92.50.223.31"));
+        assert!(txt.contains(crate::tests::IP.as_str()));
     }
 
     #[test]
@@ -100,7 +100,7 @@ mod tests {
                 .unwrap();
         let body = client.get().unwrap();
         let txt = String::from_utf8_lossy(&body);
-        assert!(txt.contains("92.50.223.31"));
+        assert!(txt.contains(crate::tests::IP.as_str()));
     }
 
     #[test]
